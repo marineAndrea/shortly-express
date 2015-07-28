@@ -6,6 +6,7 @@ var bodyParser = require('body-parser');
 var session = require('express-session');
 var cookie = require('cookie-parser');
 var bcrypt = require('bcrypt-nodejs');
+var Promise = require('bluebird');
 
 var db = require('./app/config');
 var Users = require('./app/collections/users');
@@ -42,6 +43,24 @@ var restrict = function(req, res, next) {
     //res.session.error('Access denied');
     res.redirect('/login');
   }
+};
+
+app.getSalt = function() {
+  return new Promise(function(resolve, reject) {
+    bcrypt.genSalt(10, function (err, salt) {
+      if (err) reject(err);
+      resolve(salt);
+    })
+  });
+};
+
+app.hashPassword = function(password, salt) {
+  return new Promise(function(resolve, reject) {
+    bcrypt.hash(password, salt, null, function (err, hash) {
+      if (err) reject(err);
+      resolve(hash);
+    });
+  });
 };
 
 app.get('/',
@@ -113,22 +132,34 @@ app.post('/login', function (req, res) {
   var username = req.body.username;
   var password = req.body.password;
 
-  new User().fetch().then(function(found) {
-    console.log(found);
-  }) 
+
+  // new User().fetchAll().then(function(found) {
+  //   console.log(found);
+  // }) 
+  app.getSalt()
+  .then(function(salt){
+    return app.hashPassword(password, salt)
+    .then(function(hash) {
+      return {salt: salt, hash: hash};
+    });
+  })
+  .then(function(salt_hash) {
+    console.log(username, " , ", salt_hash.hash, " , ", salt_hash.salt);
+    new User({username: username, password: salt_hash.hash, salt: salt_hash.salt}).save();
+  })
+  
 
   // go to database, look for username
   //console.log(User);
-
+  //console.log(test);
 //   new Events()
 // .query({where:{id: eventId}})
 // .fetch({withRelated: [‘participants’], require: true})
 // .then(function(collection) {
 // return collection;
 // });
-
-  // new User()
-  //   .query()
+  console.log(username);
+  // new User({username: username})
   //   .fetch()
   //   .then(function(found) {
   //     if (found) {
