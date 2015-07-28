@@ -75,6 +75,24 @@ app.comparePassword = function(password, hash) {
       }
     });
   });
+};
+
+app.getUserId = function(username) {
+  return new User({username: username}).fetch().then(function(exists) {
+    return exists.attributes.id;
+  })
+};
+
+app.userNameExists = function(username) {
+  // returns true if username is already used in database
+  return new User({username: username}).fetch().then(function(exists) {
+    if (exists) {
+      return true;
+    }
+    else {
+      return false;
+    }
+  })
 }
 
 app.get('/', restrict, 
@@ -89,9 +107,20 @@ function(req, res) {
 
 app.get('/links', 
 function(req, res) {
-  Links.reset().fetch().then(function(links) {
-    res.send(200, links.models);
+  app.getUserId(req.session.username)
+  .then(function(id) {
+
+    Links.reset().query('where', 'user_id', '=', id).fetch().then(function(links) {
+      res.send(200, links.models);
+    });
   });
+});
+
+app.get('/logout', 
+function(req, res) {
+  req.session.destroy(function() {
+    res.redirect('/login');
+  })
 });
 
 
@@ -114,16 +143,24 @@ function(req, res) {
           return res.send(404);
         }
 
-        var link = new Link({
-          url: uri,
-          title: title,
-          base_url: req.headers.origin
-        });
+        //
+        app.getUserId(req.session.username)
+        .then(function(id) {
 
-        link.save().then(function(newLink) {
-          Links.add(newLink);
-          res.send(200, newLink);
+          var link = new Link({
+            url: uri,
+            title: title,
+            base_url: req.headers.origin,
+            user_id: id
+          });
+
+          link.save().then(function(newLink) {
+            Links.add(newLink);
+            res.send(200, newLink);
+          });
         });
+        //
+
       });
     }
   });
@@ -146,19 +183,6 @@ app.post('/login', function (req, res) {
   var username = req.body.username;
   var password = req.body.password;
 
-
-  app.getSalt()
-  .then(function(salt){
-    return app.hashPassword(password, salt)
-    .then(function(hash) {
-      return {salt: salt, hash: hash};
-    });
-  })
-  .then(function(salt_hash) {
-    console.log(username, " , ", salt_hash.hash, " , ", salt_hash.salt);
-    new User({username: username, password: salt_hash.hash, salt: salt_hash.salt}).save();
-  });
-
   // We query the database for user with username 
   new User( {username: username }).fetch().then(function(exists) {
     // If that user exists
@@ -172,7 +196,6 @@ app.post('/login', function (req, res) {
       .then(function(equal) {
         if (equal) {
           // We redirect to main page
-          console.log("redirected");
           req.session.regenerate(function () {
             req.session.username = username;
             res.redirect('/');
@@ -194,20 +217,28 @@ app.post('/signup', function (req, res) {
   var username = req.body.username;
   var password = req.body.password;
 
-  new User()
-  // go to database, look for username
-    .query('where', 'username', '=', username)
-    .fetch()
-    .then(function(found) {
-      if (!found) {
-        new User( {username: username, password: password} )
-        .save()
-        .then(function() {
-          // remember to add user to users
-          res.redirect('/');
-        })
-      }
-    });
+
+  app.userNameExists(username)
+  .then(function(used) {
+    if (!used) {
+      
+      app.getSalt()
+      .then(function(salt){
+        return app.hashPassword(password, salt)
+        .then(function(hash) {
+          return {salt: salt, hash: hash};
+        });
+      })
+      .then(function(salt_hash) {
+        console.log(username, " , ", salt_hash.hash, " , ", salt_hash.salt);
+        new User({username: username, password: salt_hash.hash, salt: salt_hash.salt}).save();
+        res.redirect('/login');
+      });
+    }
+    else {
+      // nothing happens
+    }
+  });
 
 });
 
