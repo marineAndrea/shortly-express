@@ -37,10 +37,12 @@ app.use(cookie());
 app.use(express.static(__dirname + '/public'));
 
 var restrict = function(req, res, next) {
-  if (req.session.user) {
+  console.log(req.session);
+  if (req.session.username) {
     next();
   } else {
     //res.session.error('Access denied');
+    console.log("Restricted Access");
     res.redirect('/login');
   }
 };
@@ -63,12 +65,24 @@ app.hashPassword = function(password, salt) {
   });
 };
 
-app.get('/',
+app.comparePassword = function(password, hash) {
+  return new Promise(function(resolve, reject) {
+    bcrypt.compare(password, hash, function(err, res) {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(res);
+      }
+    });
+  });
+}
+
+app.get('/', restrict, 
 function(req, res) {
   res.render('index');
 });
 
-app.get('/create',
+app.get('/create', restrict,
 function(req, res) {
   res.render('index');
 });
@@ -133,9 +147,6 @@ app.post('/login', function (req, res) {
   var password = req.body.password;
 
 
-  // new User().fetchAll().then(function(found) {
-  //   console.log(found);
-  // }) 
   app.getSalt()
   .then(function(salt){
     return app.hashPassword(password, salt)
@@ -146,38 +157,37 @@ app.post('/login', function (req, res) {
   .then(function(salt_hash) {
     console.log(username, " , ", salt_hash.hash, " , ", salt_hash.salt);
     new User({username: username, password: salt_hash.hash, salt: salt_hash.salt}).save();
-  })
-  
+  });
 
-  // go to database, look for username
-  //console.log(User);
-  //console.log(test);
-//   new Events()
-// .query({where:{id: eventId}})
-// .fetch({withRelated: [‘participants’], require: true})
-// .then(function(collection) {
-// return collection;
-// });
-  console.log(username);
-  // new User({username: username})
-  //   .fetch()
-  //   .then(function(found) {
-  //     if (found) {
-  //       // get the salt
-  //       var salt = found.attributes.salt;
-  //       var user_password = found.attributes.password;
-  //       // hash provided password + salt
-  //       var hash = bcrypt.hash(password, salt);
-  //       // check if hash is same as database password
-  //       if (hash === user_password) {
-  //         // create session
-  //         req.session.regenerate(function() {
-  //           req.session.username = username;
-  //           res.redirect('/');
-  //         });
-  //       }
-  //     }
-  //   });
+  // We query the database for user with username 
+  new User( {username: username }).fetch().then(function(exists) {
+    // If that user exists
+    if (exists) {
+      console.log(exists.attributes.salt, " , ", exists.attributes.password);
+      // we get the salt and user password
+      var salt = exists.attributes.salt;
+      var user_pass = exists.attributes.password;
+      // then we has the password
+      app.comparePassword(password, user_pass)
+      .then(function(equal) {
+        if (equal) {
+          // We redirect to main page
+          console.log("redirected");
+          req.session.regenerate(function () {
+            req.session.username = username;
+            res.redirect('/');
+          })
+        }
+        else {
+          // We stay on page
+          console.log("failed password");
+          res.redirect('/login');
+        }
+      })
+
+    }
+  });
+  
 });
 
 app.post('/signup', function (req, res) {
