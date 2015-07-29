@@ -175,15 +175,30 @@ describe('', function() {
       var link;
 
       beforeEach(function(done){
-        // save a link to the database
-        link = new Link({
-          url: 'http://roflzoo.com/',
-          title: 'Funny pictures of animals, funny dog pictures',
-          base_url: 'http://127.0.0.1:4568'
-        });
-        link.save().then(function(){
+        //save a link to the database
+        //This doesn't set the user_id that we need /////////////////////
+        // link = new Link({
+        //   url: 'http://roflzoo.com/',
+        //   title: 'Funny pictures of animals, funny dog pictures',
+        //   base_url: 'http://127.0.0.1:4568'
+        // });
+        // link.save().then(function(){
+        //   done();
+        // });
+        var options = {
+          'method': 'POST',
+          'followAllRedirects': true,
+          'uri': 'http://127.0.0.1:4568/links',
+          'json': {
+            'url': 'http://roflzoo.com/'
+          }
+        };
+
+        requestWithSession(options, function(error, res, body) {
+          link = res.body;
           done();
         });
+
       });
 
       it('Returns the same shortened code', function(done) {
@@ -198,7 +213,7 @@ describe('', function() {
 
         requestWithSession(options, function(error, res, body) {
           var code = res.body.code;
-          expect(code).to.equal(link.get('code'));
+          expect(code).to.equal(link.code);
           done();
         });
       });
@@ -206,7 +221,7 @@ describe('', function() {
       it('Shortcode redirects to correct url', function(done) {
         var options = {
           'method': 'GET',
-          'uri': 'http://127.0.0.1:4568/' + link.get('code')
+          'uri': 'http://127.0.0.1:4568/' + link.code
         };
 
         requestWithSession(options, function(error, res, body) {
@@ -216,7 +231,7 @@ describe('', function() {
         });
       });
 
-      xit('Returns all of the links to display on the links page', function(done) {
+      it('Returns all of the links to display on the links page', function(done) {
         var options = {
           'method': 'GET',
           'uri': 'http://127.0.0.1:4568/links'
@@ -224,7 +239,7 @@ describe('', function() {
 
         requestWithSession(options, function(error, res, body) {
           expect(body).to.include('"title":"Funny pictures of animals, funny dog pictures"');
-          expect(body).to.include('"code":"' + link.get('code') + '"');
+          expect(body).to.include('"code":"' + link.code + '"');
           done();
         });
       });
@@ -271,8 +286,6 @@ describe('', function() {
       };
 
       request(options, function(error, res, body) {
-        //db.knex('users')
-        //.where('username', '=', 'Svnh')
         db.knex('users')
         .where('username', '=', 'Svnh')
         .then(function(res) {

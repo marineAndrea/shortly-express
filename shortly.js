@@ -2,7 +2,6 @@ var express = require('express');
 var util = require('./lib/utility');
 var partials = require('express-partials');
 var bodyParser = require('body-parser');
-var morgan = require('morgan');
 
 var session = require('express-session');
 var cookie = require('cookie-parser');
@@ -34,92 +33,23 @@ app.use(session({
     saveUninitialized: false,
 }));
 app.use(cookie());
-app.use(morgan('combined'));
 
 app.use(express.static(__dirname + '/public'));
 
-var restrict = function(req, res, next) {
-  //console.log(req.session);
-  //new User({username: 'Phillip', password: 'Phillip'}).save();;
-  if (req.session.username) {
-    console.log("Logged In as: ", req.session.username);
-    next();
-  } else {
-    res.redirect('/login');
-  }
-};
-
-app.getSalt = function() {
-  return new Promise(function(resolve, reject) {
-    bcrypt.genSalt(10, function (err, salt) {
-      if (err) reject(err);
-      resolve(salt);
-    })
-  });
-};
-
-app.hashPassword = function(password, salt) {
-  return new Promise(function(resolve, reject) {
-    bcrypt.hash(password, salt, null, function (err, hash) {
-      if (err) reject(err);
-      resolve(hash);
-    });
-  });
-};
-
-app.comparePassword = function(password, hash, salt) {
-  console.log("WE ARE COMPARING PASSWORDS: ", password, " THIS WAS THE HASH: ", hash);
-  return new Promise(function(resolve, reject) {
-    // bcrypt.compare(password, hash, function(err, res) {
-    //   console.log("THIS WAS THE ERR: ", err, " THIS WAS THE RES: ", res);
-    //   if (err) {
-    //     reject(err);
-    //   } else {
-    //     resolve(res);
-    //   }
-    // });
-    var attempt = bcrypt.hash(password, salt, null, function(err, attemptHash) {
-      console.log("We have attempted to hash");
-      if (err) reject(err);
-      resolve(hash === attemptHash);
-    })
-
-  });
-};
-
-app.getUserId = function(username) {
-  return new User({username: username}).fetch().then(function(exists) {
-    return exists.attributes.id;
-  })
-};
-
-app.userNameExists = function(username) {
-  // returns true if username is already used in database
-  return new User({username: username}).fetch().then(function(exists) {
-    if (exists) {
-      return true;
-    }
-    else {
-      return false;
-    }
-  })
-}
-
-app.get('/', restrict, 
+app.get('/', util.restrict, 
 function(req, res) {
   res.render('index');
 });
 
-app.get('/create', restrict,
+app.get('/create', util.restrict,
 function(req, res) {
   res.render('index');
 });
 
-app.get('/links', restrict,
+app.get('/links', util.restrict,
 function(req, res) {
-  app.getUserId(req.session.username)
+  util.getUserId(req.session.username)
   .then(function(id) {
-
     Links.reset().query('where', 'user_id', '=', id).fetch().then(function(links) {
       res.send(200, links.models);
     });
@@ -134,7 +64,7 @@ function(req, res) {
 });
 
 
-app.post('/links', restrict,
+app.post('/links', util.restrict,
 function(req, res) {
   var uri = req.body.url;
 
@@ -152,8 +82,9 @@ function(req, res) {
           return res.send(404);
         }
 
-        //
-        app.getUserId(req.session.username)
+        // Once we have a new link to create, we need to get the current session
+        // user id to add to the table as well
+        util.getUserId(req.session.username)
         .then(function(id) {
 
           var link = new Link({
@@ -195,20 +126,16 @@ app.post('/login', function (req, res) {
   // We query the database for user with username 
   new User( {username: username }).fetch().then(function(exists) {
     // If that user exists
-    //console.log("laskdjf;alskdfj;asljfd;laskdf ----- ", exists);
     if (exists) {
       // we get the salt and user password
-      var salt = exists.attributes.salt;
       var hash = exists.attributes.password;
       // then we has the password
-      app.comparePassword(password, hash, salt)
+      util.comparePassword(password, hash)
       .then(function(equal) {
-        console.log("WAS THIS EQUAL ", equal);
         if (equal) {
           // We generate the session and redirect to main page
           req.session.regenerate(function () {
             req.session.username = username;
-            console.log("Logged in with: ", req.session.username);
             res.redirect('/');
           })
         }
@@ -236,24 +163,15 @@ app.post('/signup', function (req, res) {
   var username = req.body.username;
   var password = req.body.password;
 
-
-  app.userNameExists(username)
+  // We check to see if the username already exists
+  //app.userNameExists(username)
+  new User({username: username}).fetch()
   .then(function(used) {
     if (!used) {
-      
-      app.getSalt()
-      .then(function(salt){
-        return app.hashPassword(password, salt)
-        .then(function(hash) {
-          return {salt: salt, hash: hash};
-        });
-      })
-      .then(function(salt_hash) {
-        // First we create
-        new User({username: username, password: password}).save()
-        .then(function() {
-          res.redirect('/');
-        });
+
+      new User({username:username, password: password}).save()
+      .then(function() {
+        res.redirect('/');
       });
     }
     else {
