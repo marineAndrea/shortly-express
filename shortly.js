@@ -2,6 +2,7 @@ var express = require('express');
 var util = require('./lib/utility');
 var partials = require('express-partials');
 var bodyParser = require('body-parser');
+var morgan = require('morgan');
 
 var session = require('express-session');
 var cookie = require('cookie-parser');
@@ -30,19 +31,20 @@ app.use(session({
     name: 'short_secret',
     proxy: true,
     resave: true,
-    saveUninitialized: true,
+    saveUninitialized: false,
 }));
 app.use(cookie());
+app.use(morgan('combined'));
 
 app.use(express.static(__dirname + '/public'));
 
 var restrict = function(req, res, next) {
-  console.log(req.session);
+  //console.log(req.session);
+  //new User({username: 'Phillip', password: 'Phillip'}).save();;
   if (req.session.username) {
+    console.log("Logged In as: ", req.session.username);
     next();
   } else {
-    //res.session.error('Access denied');
-    console.log("Restricted Access");
     res.redirect('/login');
   }
 };
@@ -65,15 +67,23 @@ app.hashPassword = function(password, salt) {
   });
 };
 
-app.comparePassword = function(password, hash) {
+app.comparePassword = function(password, hash, salt) {
+  console.log("WE ARE COMPARING PASSWORDS: ", password, " THIS WAS THE HASH: ", hash);
   return new Promise(function(resolve, reject) {
-    bcrypt.compare(password, hash, function(err, res) {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(res);
-      }
-    });
+    // bcrypt.compare(password, hash, function(err, res) {
+    //   console.log("THIS WAS THE ERR: ", err, " THIS WAS THE RES: ", res);
+    //   if (err) {
+    //     reject(err);
+    //   } else {
+    //     resolve(res);
+    //   }
+    // });
+    var attempt = bcrypt.hash(password, salt, null, function(err, attemptHash) {
+      console.log("We have attempted to hash");
+      if (err) reject(err);
+      resolve(hash === attemptHash);
+    })
+
   });
 };
 
@@ -105,7 +115,7 @@ function(req, res) {
   res.render('index');
 });
 
-app.get('/links', 
+app.get('/links', restrict,
 function(req, res) {
   app.getUserId(req.session.username)
   .then(function(id) {
@@ -124,7 +134,7 @@ function(req, res) {
 });
 
 
-app.post('/links', 
+app.post('/links', restrict,
 function(req, res) {
   var uri = req.body.url;
 
@@ -132,7 +142,6 @@ function(req, res) {
     console.log('Not a valid url: ', uri);
     return res.send(404);
   }
-
   new Link({ url: uri }).fetch().then(function(found) {
     if (found) {
       res.send(200, found.attributes);
@@ -186,18 +195,20 @@ app.post('/login', function (req, res) {
   // We query the database for user with username 
   new User( {username: username }).fetch().then(function(exists) {
     // If that user exists
+    //console.log("laskdjf;alskdfj;asljfd;laskdf ----- ", exists);
     if (exists) {
-      console.log(exists.attributes.salt, " , ", exists.attributes.password);
       // we get the salt and user password
       var salt = exists.attributes.salt;
-      var user_pass = exists.attributes.password;
+      var hash = exists.attributes.password;
       // then we has the password
-      app.comparePassword(password, user_pass)
+      app.comparePassword(password, hash, salt)
       .then(function(equal) {
+        console.log("WAS THIS EQUAL ", equal);
         if (equal) {
-          // We redirect to main page
+          // We generate the session and redirect to main page
           req.session.regenerate(function () {
             req.session.username = username;
+            console.log("Logged in with: ", req.session.username);
             res.redirect('/');
           })
         }
@@ -207,7 +218,15 @@ app.post('/login', function (req, res) {
           res.redirect('/login');
         }
       })
+      .catch(function(err) {
+        console.log("THERE WAS AN ERROR ", err);
+        res.status(404).end();
+      })
 
+    }
+    else {
+      // If the user doesn't exist, stay on login page
+      res.redirect('/login');
     }
   });
   
@@ -230,13 +249,16 @@ app.post('/signup', function (req, res) {
         });
       })
       .then(function(salt_hash) {
-        console.log(username, " , ", salt_hash.hash, " , ", salt_hash.salt);
-        new User({username: username, password: salt_hash.hash, salt: salt_hash.salt}).save();
-        res.redirect('/login');
+        // First we create
+        new User({username: username, password: password}).save()
+        .then(function() {
+          res.redirect('/');
+        });
       });
     }
     else {
       // nothing happens
+      console.log("ERROR - USERNAME ALREADY USED");
     }
   });
 
